@@ -3,6 +3,7 @@ import logging
 import math
 import numpy as np
 import os
+import random
 import qt
 import time
 import vtk
@@ -292,6 +293,9 @@ class ChestXRayAnalyzerLogic(ScriptedLoadableModuleLogic):
         except:
             logging.error('Input volume was not defined.')
 
+        # Crop input volume
+        self.centerCropVolume(inputVolumeNode)
+
         # Automatic segmentation
         self.runAutomaticSegmentation(inputVolumeNode)
 
@@ -308,6 +312,18 @@ class ChestXRayAnalyzerLogic(ScriptedLoadableModuleLogic):
         return True
 
     #-------------------------------------------------------------------------------
+    def centerCropVolume(self, inputVolumeNode):
+        # Get array
+        volumeArray = slicer.util.arrayFromVolume(inputVolumeNode)
+
+        # Crop center square of input image
+        centerCropTransform = torchvision.transforms.Compose([xrv.datasets.XRayCenterCrop()])
+        volumeArray_centerCrop = centerCropTransform(volumeArray)
+
+        # Update volume node with cropped array
+        slicer.util.updateVolumeFromArray(inputVolumeNode, volumeArray_centerCrop)
+    
+    #-------------------------------------------------------------------------------
     def runAutomaticSegmentation(self, inputVolumeNode):
 
         # Clear previous segmentation if any. Otherwise create new one
@@ -319,6 +335,7 @@ class ChestXRayAnalyzerLogic(ScriptedLoadableModuleLogic):
         
         # Get array
         volumeArray = slicer.util.arrayFromVolume(inputVolumeNode)
+        print('Volume array = ', volumeArray.shape)
 
         # Save original image size
         numRows = volumeArray.shape[2]
@@ -346,41 +363,35 @@ class ChestXRayAnalyzerLogic(ScriptedLoadableModuleLogic):
         pred[pred < 0.5] = 0
         pred[pred > 0.5] = 1
 
-        # Segment lungs
-        ## Resize mask
-        leftLungId = 4
-        leftLungMask = np.array(pred[0,leftLungId])
-        leftLungMask_resize = cv2.resize(leftLungMask, (numRows, numColumns))
-        leftLungMask_expand = np.expand_dims(leftLungMask_resize, 0)
-        rightLungId = 5
-        rightLungMask = np.array(pred[0,rightLungId])
-        rightLungMask_resize = cv2.resize(rightLungMask, (numRows, numColumns))
-        rightLungMask_expand = np.expand_dims(rightLungMask_resize, 0)
-        # Add segments
-        self.addSegmentFromNumpyArray(self.outputSegmentation, leftLungMask_expand, 'Left Lung', 1, inputVolumeNode, self.leftLungColor)
-        self.addSegmentFromNumpyArray(self.outputSegmentation, rightLungMask_expand, 'Right Lung', 1, inputVolumeNode, self.rightLungColor)
-    
-        # Segment all structures
-        """
+        # Convert prediction to segments
         for targetId, targetName in enumerate(model.targets):
-            print('Adding target = ', targetName)
-
             # Resize mask
             targetMask = np.array(pred[0,targetId])
             targetMask_resize = cv2.resize(targetMask, (numRows, numColumns))
             targetMask_expand = np.expand_dims(targetMask_resize, 0)
-
-            # Generate random color
-            import random
-            r = random.uniform(0.0, 1.0)
-            g = random.uniform(0.0, 1.0)
-            b = random.uniform(0.0, 1.0)
-            segmentColor = [r,g,b]
-
+            # Assign color to segment
+            if targetName == 'Left Lung':
+                segmentColor = self.leftLungColor
+            elif targetName == 'Right Lung':
+                segmentColor = self.rightLungColor
+            else: # random
+                segmentColor = [random.uniform(0.0, 1.0), random.uniform(0.0, 1.0), random.uniform(0.0, 1.0)]
             # Add target as segment
             self.addSegmentFromNumpyArray(self.outputSegmentation, targetMask_expand, targetName, 1, inputVolumeNode, segmentColor)
-        """   
-    
+
+        # Hide all segments except for lungs
+        segmentOpacity = 0.9
+        numSegments = self.outputSegmentation.GetSegmentation().GetNumberOfSegments()
+        for segmentPos in range(numSegments):
+            currentSegmentID = self.outputSegmentation.GetSegmentation().GetNthSegmentID(segmentPos)
+            self.outputSegmentation.GetDisplayNode().SetSegmentOpacity(currentSegmentID, segmentOpacity)
+            if (currentSegmentID == 'Left Lung') or (currentSegmentID == 'Right Lung'):
+                self.outputSegmentation.GetDisplayNode().SetSegmentVisibility(currentSegmentID, True)
+                #self.outputSegmentation.GetDisplayNode().SetSegmentOpacity(currentSegmentID, segmentOpacity)
+                self.outputSegmentation.GetDisplayNode().SetSegmentOpacity2DOutline(currentSegmentID, 1.0)
+                self.outputSegmentation.GetDisplayNode().SetSegmentOpacity2DFill(currentSegmentID, 0.1)
+            else:
+                self.outputSegmentation.GetDisplayNode().SetSegmentVisibility(currentSegmentID, False)
 
     #-------------------------------------------------------------------------------
     def runClassifier(self, inputVolumeNode):
@@ -412,8 +423,7 @@ class ChestXRayAnalyzerLogic(ScriptedLoadableModuleLogic):
         outputs = model(img[None,...])
 
         # Print results
-        print(dict(zip(model.pathologies,outputs[0].detach().numpy())))
-    
+        print(dict(zip(model.pathologies,outputs[0].detach().numpy())))    
 
     #-------------------------------------------------------------------------------
     def loadModel(self):
