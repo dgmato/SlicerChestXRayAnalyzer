@@ -19,6 +19,7 @@ import torch
 import torchvision
 import cv2
 import numpy as np
+import skimage
         
         
 
@@ -423,7 +424,48 @@ class ChestXRayAnalyzerLogic(ScriptedLoadableModuleLogic):
         outputs = model(img[None,...])
 
         # Print results
-        print(dict(zip(model.pathologies,outputs[0].detach().numpy())))    
+        print(dict(zip(model.pathologies,outputs[0].detach().numpy())))
+
+        # Compute pathology heatmaps
+        computeHeatmaps = True
+        if computeHeatmaps:
+            heatmap_dict = {}
+            for pathologyName in model.pathologies:
+                print('Computing heatmap for pathology: ', pathologyName)
+                # Enable gradient computation for this tensor
+                inputImage = img[None,...]
+                inputImage = inputImage.requires_grad_()
+                # Run inference
+                outputs = model(inputImage)
+                print(outputs.shape)                
+                # Compute heatmap
+                heatmap = self.getPathologyHeatmap(inputImage, outputs, model, pathologyName)
+                print('   - Shape: ', heatmap.shape)             
+                # Store heatmap
+                heatmap_dict[pathologyName] = heatmap
+
+                # Resize heatmap
+                heatmap = np.array(heatmap)
+                heatmap_resize = cv2.resize(heatmap, (numRows, numColumns))
+                heatmap_expand = np.expand_dims(heatmap_resize, 0)
+
+                # Normalize heatmap
+                heatmap_norm = xrv.datasets.normalize(heatmap_expand, heatmap_expand.max())
+                
+                # Create volume node
+                shNode = slicer.mrmlScene.GetSubjectHierarchyNode()
+                inputVolumeItemID = shNode.GetItemByDataNode(inputVolumeNode)
+                heatmapVolumeItemID = slicer.modules.subjecthierarchy.logic().CloneSubjectHierarchyItem(shNode, inputVolumeItemID)
+                heatmapVolumeNode = shNode.GetItemDataNode(heatmapVolumeItemID)
+                heatmapVolumeNode.SetName('Heatmap - ' + pathologyName)
+                slicer.util.updateVolumeFromArray(heatmapVolumeNode, heatmap_norm)
+        
+    #-------------------------------------------------------------------------------
+    def getPathologyHeatmap(self, image, outputs, model, pathologyName):
+        target = model.pathologies.index(pathologyName)
+        grads = torch.autograd.grad(outputs[:,target], image)[0][0][0]
+        blurred = skimage.filters.gaussian(grads.detach().cpu().numpy()**2, sigma=(5, 5), truncate=3.5)
+        return blurred
 
     #-------------------------------------------------------------------------------
     def loadModel(self):
