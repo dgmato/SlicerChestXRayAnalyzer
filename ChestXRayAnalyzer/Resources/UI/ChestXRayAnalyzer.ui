@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<ui version="4.SlicerChestXRayAnalyzer0">
+<ui version="4.0">
  <class>ChestXRayAnalyzer</class>
  <widget class="qMRMLWidget" name="ChestXRayAnalyzer">
   <property name="geometry">
@@ -24,6 +24,15 @@
         </property>
        </widget>
       </item>
+      <item row="1" column="1">
+       <widget class="QComboBox" name="segmentationModelComboBox">
+        <item>
+         <property name="text">
+          <string>Pyramid Scene Parsing (PSP) Network</string>
+         </property>
+        </item>
+       </widget>
+      </item>
       <item row="0" column="1">
        <widget class="qMRMLNodeComboBox" name="inputVolumeSelector">
         <property name="nodeTypes">
@@ -39,42 +48,39 @@
         </property>
        </widget>
       </item>
-      <item row="1" column="0">
-       <widget class="QLabel" name="label">
-        <property name="text">
-         <string>Model:</string>
-        </property>
-       </widget>
-      </item>
-      <item row="1" column="1">
-       <widget class="QComboBox" name="modelComboBox">
-        <item>
-         <property name="text">
-          <string>DynUNet Mandible and Nerves</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>1</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>2</string>
-         </property>
-        </item>
-        <item>
-         <property name="text">
-          <string>3</string>
-         </property>
-        </item>
-       </widget>
-      </item>
-      <item row="2" column="0" colspan="2">
+      <item row="3" column="0" colspan="2">
        <widget class="QPushButton" name="runButton">
         <property name="text">
          <string>Run Automatic Segmentation</string>
         </property>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <widget class="QLabel" name="label">
+        <property name="text">
+         <string>Segmentation model:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="0">
+       <widget class="QLabel" name="label_2">
+        <property name="text">
+         <string>Classification model:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="1">
+       <widget class="QComboBox" name="classificationModelComboBox">
+        <item>
+         <property name="text">
+          <string>resnet50-res512-all</string>
+         </property>
+        </item>
+        <item>
+         <property name="text">
+          <string>densenet121-res224-all</string>
+         </property>
+        </item>
        </widget>
       </item>
      </layout>

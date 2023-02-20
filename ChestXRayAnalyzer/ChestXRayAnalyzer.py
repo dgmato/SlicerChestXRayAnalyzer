@@ -95,7 +95,8 @@ class ChestXRayAnalyzerWidget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         # These connections ensure that whenever user changes some settings on the GUI, that is saved in the MRML scene
         # (in the selected parameter node).
         self.ui.inputVolumeSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.updateParameterNodeFromGUI)
-        self.ui.modelComboBox.currentTextChanged.connect(self.updateParameterNodeFromGUI)
+        self.ui.segmentationModelComboBox.currentTextChanged.connect(self.updateParameterNodeFromGUI)
+        self.ui.classificationModelComboBox.currentTextChanged.connect(self.updateParameterNodeFromGUI)
 
         # Buttons
         self.ui.runButton.connect('clicked(bool)', self.onRunButton)
@@ -196,7 +197,8 @@ class ChestXRayAnalyzerWidget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         self.ui.inputVolumeSelector.setCurrentNode(self._parameterNode.GetNodeReference("InputVolume"))
 
         # Update model selector
-        self.ui.modelComboBox.setCurrentText(self._parameterNode.GetParameter("SelectedModel"))
+        self.ui.segmentationModelComboBox.setCurrentText(self._parameterNode.GetParameter("SelectedSegmentationModel"))
+        self.ui.classificationModelComboBox.setCurrentText(self._parameterNode.GetParameter("SelectedClassificationModel"))
 
         # Update buttons states and tooltips
         if self._parameterNode.GetNodeReference("InputVolume"):
@@ -221,7 +223,8 @@ class ChestXRayAnalyzerWidget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         wasModified = self._parameterNode.StartModify()  # Modify all properties in a single batch
 
         self._parameterNode.SetNodeReferenceID("InputVolume", self.ui.inputVolumeSelector.currentNodeID)
-        self._parameterNode.SetParameter("SelectedModel", self.ui.modelComboBox.currentText)
+        self._parameterNode.SetParameter("SelectedSegmentationModel", self.ui.segmentationModelComboBox.currentText)
+        self._parameterNode.SetParameter("SelectedClassificationModel", self.ui.classificationModelComboBox.currentText)
 
         self._parameterNode.EndModify(wasModified)
 
@@ -272,7 +275,8 @@ class ChestXRayAnalyzerLogic(ScriptedLoadableModuleLogic):
         """
         Initialize parameter node with default settings.
         """
-        parameterNode.SetParameter("SelectedModel", "DynUNet Mandible and Nerves")
+        parameterNode.SetParameter("SelectedSegmentationModel", "Pyramid Scene Parsing (PSP) Network")
+        parameterNode.SetParameter("SelectedClassificationModel", "resnet50-res512-all")
 
     #-------------------------------------------------------------------------------
     def run(self, parameterNode):
@@ -288,20 +292,14 @@ class ChestXRayAnalyzerLogic(ScriptedLoadableModuleLogic):
         startTime = time.time()
         logging.info('Processing started')
 
-        # Get input volume
-        try:
-            inputVolumeNode = parameterNode.GetNodeReference("InputVolume")
-        except:
-            logging.error('Input volume was not defined.')
-
         # Crop input volume
-        self.centerCropVolume(inputVolumeNode)
+        self.centerCropVolume(parameterNode)
 
         # Automatic segmentation
-        self.runAutomaticSegmentation(inputVolumeNode)
+        self.runAutomaticSegmentation(parameterNode)
 
         # Classification
-        self.runClassifier(inputVolumeNode)
+        self.runClassifier(parameterNode)
 
         # Get final timestamp
         stopTime = time.time()
@@ -313,7 +311,17 @@ class ChestXRayAnalyzerLogic(ScriptedLoadableModuleLogic):
         return True
 
     #-------------------------------------------------------------------------------
-    def centerCropVolume(self, inputVolumeNode):
+    def centerCropVolume(self, parameterNode):
+        if not parameterNode:
+            return
+
+        # Get input volume
+        try:
+            inputVolumeNode = parameterNode.GetNodeReference("InputVolume")
+        except:
+            logging.error('Input volume was not defined.')
+            return
+
         # Get array
         volumeArray = slicer.util.arrayFromVolume(inputVolumeNode)
 
@@ -325,8 +333,24 @@ class ChestXRayAnalyzerLogic(ScriptedLoadableModuleLogic):
         slicer.util.updateVolumeFromArray(inputVolumeNode, volumeArray_centerCrop)
     
     #-------------------------------------------------------------------------------
-    def runAutomaticSegmentation(self, inputVolumeNode):
+    def runAutomaticSegmentation(self, parameterNode):
+        if not parameterNode:
+            return
 
+        # Get input volume
+        try:
+            inputVolumeNode = parameterNode.GetNodeReference("InputVolume")
+        except:
+            logging.error('Input volume was not defined.')
+            return
+            
+        # Get segmentation model
+        try:
+            selectedSegmentationModel = parameterNode.GetParameter("SelectedSegmentationModel")
+        except:
+            logging.error('Segmentation model was not selected.')
+            return
+            
         # Create progress dialog and store start time
         progressDialog = slicer.util.createProgressDialog(parent=slicer.util.mainWindow(), value=0, maximum=100)
 
@@ -342,7 +366,6 @@ class ChestXRayAnalyzerLogic(ScriptedLoadableModuleLogic):
         
         # Get array
         volumeArray = slicer.util.arrayFromVolume(inputVolumeNode)
-        print('Volume array = ', volumeArray.shape)
 
         # Save original image size
         numRows = volumeArray.shape[2]
@@ -351,13 +374,17 @@ class ChestXRayAnalyzerLogic(ScriptedLoadableModuleLogic):
         # Convert 8-bit image to [-1024, 1024] range
         img = xrv.datasets.normalize(volumeArray, volumeArray.max())
 
-        # Resize image to 512 x 512
-        transform = torchvision.transforms.Compose([xrv.datasets.XRayCenterCrop(),xrv.datasets.XRayResizer(512)])
-        img = transform(img)
-        img = torch.from_numpy(img)
-
-        # Get segmentation model
-        model = xrv.baseline_models.chestx_det.PSPNet()
+        # Apply segmentation model
+        if selectedSegmentationModel == 'Pyramid Scene Parsing (PSP) Network':
+            # Resize image to 512 x 512
+            transform = torchvision.transforms.Compose([xrv.datasets.XRayCenterCrop(),xrv.datasets.XRayResizer(512)])
+            img = transform(img)
+            img = torch.from_numpy(img)
+            # Get segmentation model
+            model = xrv.baseline_models.chestx_det.PSPNet()
+        else:
+            logging.error('Invalid segmentation model.')
+            return
 
         # Run inference
         with torch.no_grad():
@@ -408,8 +435,24 @@ class ChestXRayAnalyzerLogic(ScriptedLoadableModuleLogic):
         progressDialog.close()
 
     #-------------------------------------------------------------------------------
-    def runClassifier(self, inputVolumeNode, progressDialog = None):
+    def runClassifier(self, parameterNode):
+        if not parameterNode:
+            return
 
+        # Get input volume
+        try:
+            inputVolumeNode = parameterNode.GetNodeReference("InputVolume")
+        except:
+            logging.error('Input volume was not defined.')
+            return
+
+        # Get classification model
+        try:
+            selectedClassificationModel = parameterNode.GetParameter("SelectedClassificationModel")
+        except:
+            logging.error('Classification model was not selected.')
+            return        
+            
         # Create progress dialog and store start time
         progressDialog = slicer.util.createProgressDialog(parent=slicer.util.mainWindow(), value=0, maximum=100)
 
@@ -426,13 +469,28 @@ class ChestXRayAnalyzerLogic(ScriptedLoadableModuleLogic):
         # Convert 8-bit image to [-1024, 1024] range
         img = xrv.datasets.normalize(volumeArray, volumeArray.max())
 
-        # Resize image to 512 x 512
-        transform = torchvision.transforms.Compose([xrv.datasets.XRayCenterCrop(),xrv.datasets.XRayResizer(512)])
-        img = transform(img)
-        img = torch.from_numpy(img)
+        # Apply classification model
+        if selectedClassificationModel == 'resnet50-res512-all':
+            # Resize image to 512 x 512
+            transform = torchvision.transforms.Compose([xrv.datasets.XRayCenterCrop(),xrv.datasets.XRayResizer(512)])
+            img = transform(img)
+            img = torch.from_numpy(img)
+            # Get classification model
+            model = xrv.models.ResNet(weights="resnet50-res512-all")
+            print('Classification model = ', model)
 
-        # Get classification model
-        model = xrv.models.ResNet(weights="resnet50-res512-all")
+        elif selectedClassificationModel == 'densenet121-res224-all':
+            # Resize image to 224 x 224
+            transform = torchvision.transforms.Compose([xrv.datasets.XRayCenterCrop(),xrv.datasets.XRayResizer(224)])
+            img = transform(img)
+            img = torch.from_numpy(img)
+            # Get classification model
+            model = xrv.models.DenseNet(weights="densenet121-res224-all")
+            print('Classification model = ', model)
+
+        else:
+            logging.error('Invalid segmentation model.')
+            return        
 
         # model.pathologies
         # ['Atelectasis', 'Consolidation', 'Infiltration', 'Pneumothorax', 'Edema', 'Emphysema', 
