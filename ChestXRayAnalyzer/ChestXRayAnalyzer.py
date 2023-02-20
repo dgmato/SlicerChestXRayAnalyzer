@@ -256,7 +256,7 @@ class ChestXRayAnalyzerLogic(ScriptedLoadableModuleLogic):
         self.leftLungColor = (0.95, 0.84, 0.57)
 
         # Load sample data
-        loadSampleDataEnabled = True
+        loadSampleDataEnabled = False
         if loadSampleDataEnabled:
             volumeFilePath = slicer.modules.ChestXRayAnalyzerWidget.resourcePath('SampleData/100469495785351489872749036114751610212_rfyvv7.png')
             try:
@@ -287,7 +287,7 @@ class ChestXRayAnalyzerLogic(ScriptedLoadableModuleLogic):
         # Get initial timestamp
         startTime = time.time()
         logging.info('Processing started')
-        
+
         # Get input volume
         try:
             inputVolumeNode = parameterNode.GetNodeReference("InputVolume")
@@ -327,6 +327,12 @@ class ChestXRayAnalyzerLogic(ScriptedLoadableModuleLogic):
     #-------------------------------------------------------------------------------
     def runAutomaticSegmentation(self, inputVolumeNode):
 
+        # Create progress dialog and store start time
+        progressDialog = slicer.util.createProgressDialog(parent=slicer.util.mainWindow(), value=0, maximum=100)
+
+        # Set wait cursor
+        qt.QApplication.setOverrideCursor(qt.Qt.WaitCursor)
+        
         # Clear previous segmentation if any. Otherwise create new one
         if self.outputSegmentation:
             self.outputSegmentation.GetSegmentation().RemoveAllSegments()
@@ -365,7 +371,10 @@ class ChestXRayAnalyzerLogic(ScriptedLoadableModuleLogic):
         pred[pred > 0.5] = 1
 
         # Convert prediction to segments
+        segmentationProgressStep = 100/(len(model.targets))
         for targetId, targetName in enumerate(model.targets):
+            # Report progress
+            self.progress(progressDialog, segmentationProgressStep * (targetId+1), f'Running automatic segmentation...')
             # Resize mask
             targetMask = np.array(pred[0,targetId])
             targetMask_resize = cv2.resize(targetMask, (numRows, numColumns))
@@ -394,9 +403,19 @@ class ChestXRayAnalyzerLogic(ScriptedLoadableModuleLogic):
             else:
                 self.outputSegmentation.GetDisplayNode().SetSegmentVisibility(currentSegmentID, False)
 
-    #-------------------------------------------------------------------------------
-    def runClassifier(self, inputVolumeNode):
+        # End processing
+        qt.QApplication.restoreOverrideCursor()
+        progressDialog.close()
 
+    #-------------------------------------------------------------------------------
+    def runClassifier(self, inputVolumeNode, progressDialog = None):
+
+        # Create progress dialog and store start time
+        progressDialog = slicer.util.createProgressDialog(parent=slicer.util.mainWindow(), value=0, maximum=100)
+
+        # Set wait cursor
+        qt.QApplication.setOverrideCursor(qt.Qt.WaitCursor)
+        
         # Get array
         volumeArray = slicer.util.arrayFromVolume(inputVolumeNode)
 
@@ -428,19 +447,24 @@ class ChestXRayAnalyzerLogic(ScriptedLoadableModuleLogic):
 
         # Compute pathology heatmaps
         computeHeatmaps = True
+        shNode = slicer.mrmlScene.GetSubjectHierarchyNode() # hierarchy node
+        heatmapFolderId = shNode.CreateFolderItem(shNode.GetSceneItemID(), 'Heatmaps') # create folder to store heatmaps
         if computeHeatmaps:
             heatmap_dict = {}
-            for pathologyName in model.pathologies:
+            heatmapProgressStep = 100/(len(model.pathologies))
+            for pathologyId, pathologyName in enumerate(model.pathologies):
                 print('Computing heatmap for pathology: ', pathologyName)
+                # Report progress
+                self.progress(progressDialog, heatmapProgressStep * (pathologyId+1), f'Running pathology classication...')
                 # Enable gradient computation for this tensor
                 inputImage = img[None,...]
                 inputImage = inputImage.requires_grad_()
                 # Run inference
                 outputs = model(inputImage)
-                print(outputs.shape)                
+                #print(outputs.shape)                
                 # Compute heatmap
                 heatmap = self.getPathologyHeatmap(inputImage, outputs, model, pathologyName)
-                print('   - Shape: ', heatmap.shape)             
+                #print('   - Shape: ', heatmap.shape)             
                 # Store heatmap
                 heatmap_dict[pathologyName] = heatmap
 
@@ -452,13 +476,25 @@ class ChestXRayAnalyzerLogic(ScriptedLoadableModuleLogic):
                 # Normalize heatmap
                 heatmap_norm = xrv.datasets.normalize(heatmap_expand, heatmap_expand.max())
                 
-                # Create volume node
-                shNode = slicer.mrmlScene.GetSubjectHierarchyNode()
+                # Create heatmap volume node
                 inputVolumeItemID = shNode.GetItemByDataNode(inputVolumeNode)
                 heatmapVolumeItemID = slicer.modules.subjecthierarchy.logic().CloneSubjectHierarchyItem(shNode, inputVolumeItemID)
                 heatmapVolumeNode = shNode.GetItemDataNode(heatmapVolumeItemID)
                 heatmapVolumeNode.SetName('Heatmap - ' + pathologyName)
                 slicer.util.updateVolumeFromArray(heatmapVolumeNode, heatmap_norm)
+
+                # Modify display properties
+                heatmapVolumeDisplayNode = heatmapVolumeNode.GetDisplayNode()
+                heatmapVolumeDisplayNode.SetAndObserveColorNodeID('vtkMRMLPETProceduralColorNodePET-Heat') # lookup table
+                heatmapVolumeDisplayNode.SetAutoThreshold(True)
+                heatmapVolumeDisplayNode.SetAutoWindowLevel(True)
+
+                # Store heatmap volume node in folder
+                shNode.SetItemParent(heatmapVolumeItemID, heatmapFolderId)
+
+        # End processing
+        qt.QApplication.restoreOverrideCursor()
+        progressDialog.close()
         
     #-------------------------------------------------------------------------------
     def getPathologyHeatmap(self, image, outputs, model, pathologyName):
@@ -510,7 +546,18 @@ class ChestXRayAnalyzerLogic(ScriptedLoadableModuleLogic):
         segment_np[ input_np==labelValue ] = 1
 
         segmentId = self.outputSegmentation.GetSegmentation().GetSegmentIdBySegmentName(segmentName)
-        slicer.util.updateSegmentBinaryLabelmapFromArray(segment_np, outputSegmentation, segmentId, inputVolume)
+        slicer.util.updateSegmentBinaryLabelmapFromArray(segment_np, outputSegmentation, segmentId, inputVolume)    
+
+    #------------------------------------------------------------------------------
+    def progress(self, progressDialog, progressPercent, message):
+        """
+        Utility function to change text in the progress dialog, increase progress value, and force render.
+        """
+        progressDialog.setValue(progressPercent)
+        progressDialog.labelText = message
+        slicer.app.processEvents()
+        if progressDialog.wasCanceled:
+            raise CancelledError('Cancelled')
 
 
 #
