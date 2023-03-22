@@ -507,19 +507,22 @@ class ChestXRayAnalyzerLogic(ScriptedLoadableModuleLogic):
         computeHeatmaps = True
         shNode = slicer.mrmlScene.GetSubjectHierarchyNode() # hierarchy node
         heatmapFolderId = shNode.CreateFolderItem(shNode.GetSceneItemID(), 'Heatmaps') # create folder to store heatmaps
+
+        # Enable gradient computation for this tensor
+        inputImage = img[None,...]
+        inputImage = inputImage.requires_grad_()
+
+        # Run inference
+        outputs = model(inputImage)
+        #print(outputs.shape) 
+        
         if computeHeatmaps:
             heatmap_dict = {}
             heatmapProgressStep = 100/(len(model.pathologies))
             for pathologyId, pathologyName in enumerate(model.pathologies):
                 print('Computing heatmap for pathology: ', pathologyName)
                 # Report progress
-                self.progress(progressDialog, heatmapProgressStep * (pathologyId+1), f'Running pathology classication...')
-                # Enable gradient computation for this tensor
-                inputImage = img[None,...]
-                inputImage = inputImage.requires_grad_()
-                # Run inference
-                outputs = model(inputImage)
-                #print(outputs.shape)                
+                self.progress(progressDialog, heatmapProgressStep * (pathologyId+1), f'Running pathology classication...')               
                 # Compute heatmap
                 heatmap = self.getPathologyHeatmap(inputImage, outputs, model, pathologyName)
                 #print('   - Shape: ', heatmap.shape)             
@@ -557,7 +560,7 @@ class ChestXRayAnalyzerLogic(ScriptedLoadableModuleLogic):
     #-------------------------------------------------------------------------------
     def getPathologyHeatmap(self, image, outputs, model, pathologyName):
         target = model.pathologies.index(pathologyName)
-        grads = torch.autograd.grad(outputs[:,target], image)[0][0][0]
+        grads = torch.autograd.grad(outputs[:,target], image, retain_graph = True)[0][0][0]
         blurred = skimage.filters.gaussian(grads.detach().cpu().numpy()**2, sigma=(5, 5), truncate=3.5)
         return blurred
 
