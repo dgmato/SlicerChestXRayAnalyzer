@@ -18,8 +18,11 @@ import torchxrayvision as xrv
 import torch
 import torchvision
 import cv2
+from PIL import Image
 import numpy as np
 import skimage
+
+from preprocess.preprocess import preprocess
         
         
 
@@ -100,9 +103,13 @@ class ChestXRayAnalyzerWidget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
         # Buttons
         self.ui.runButton.connect('clicked(bool)', self.onRunButton)
+        self.ui.classifyButton.connect('clicked(bool)', self.onClassifyButton)
 
         # Make sure parameter node is initialized (needed for module reload)
         self.initializeParameterNode()
+
+        # Set ProgressBar to 0
+        self.setProgressBarValues()
 
     #-------------------------------------------------------------------------------
     def cleanup(self):
@@ -204,9 +211,13 @@ class ChestXRayAnalyzerWidget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         if self._parameterNode.GetNodeReference("InputVolume"):
             self.ui.runButton.toolTip = "Run automatic segmentation."
             self.ui.runButton.enabled = True
+            self.ui.classifyButton.toolTip = "Run automatic classification."
+            self.ui.classifyButton.enabled = True
         else:
             self.ui.runButton.toolTip = "Select input volume."
             self.ui.runButton.enabled = False
+            self.ui.classifyButton.toolTip = "Select input volume."
+            self.ui.classifyButton.enabled = False
 
         # All the GUI updates are done
         self._updatingGUIFromParameterNode = False
@@ -228,15 +239,36 @@ class ChestXRayAnalyzerWidget(ScriptedLoadableModuleWidget, VTKObservationMixin)
 
         self._parameterNode.EndModify(wasModified)
 
+        # Dispaly the selected volume in Red Slice View
+        inputVolume = self._parameterNode.GetNodeReference("InputVolume")
+        if inputVolume:
+            self.logic.displayVolumeInSliceView(inputVolume)
+
     #-------------------------------------------------------------------------------
     def onRunButton(self):
         """
         Run processing.
         """
-        with slicer.util.tryWithErrorDisplay("Failed to compute results.", waitCursor=True):
+        with slicer.util.tryWithErrorDisplay("Failed to compute results.", waitCursor = True):
             # Run inference
             self.logic.run(self._parameterNode)
 
+    #-------------------------------------------------------------------------------
+    def onClassifyButton(self):
+        """
+        Run processing.
+        """
+        with slicer.util.tryWithErrorDisplay("Failed to compute results.", waitCursor = True):
+            # Run inference
+            self.logic.runClassifierValenciaModels(self._parameterNode)
+            self.setProgressBarValues()
+
+    #-------------------------------------------------------------------------------
+    def setProgressBarValues(self):
+        for pathology, path in self.logic.model_paths.items():
+            progress_bar_name = pathology + '_progressBar'
+            progress_bar = getattr(self.ui, progress_bar_name)
+            self.logic.updateProgressBar(progress_bar, pathology)
 
 #------------------------------------------------------------------------------
 #
@@ -251,8 +283,14 @@ class ChestXRayAnalyzerLogic(ScriptedLoadableModuleLogic):
         """
         ScriptedLoadableModuleLogic.__init__(self)
 
+        # Red slice
+        self.redSliceLogic = slicer.app.layoutManager().sliceWidget("Red").sliceLogic()
+
         # Output segmentation
         self.outputSegmentation = None
+
+        # Classification results
+        self.results = None
 
         # Segment colors
         self.rightLungColor = (0.5, 0.68, 0.5)
@@ -266,6 +304,29 @@ class ChestXRayAnalyzerLogic(ScriptedLoadableModuleLogic):
                 volumeNode = slicer.util.loadVolume(volumeFilePath)
             except:
                 print('ERROR: sample data could not be loaded from: ', volumeFilePath)
+
+        # Image path (used to process the image)
+        self.img_path = slicer.modules.ChestXRayAnalyzerWidget.resourcePath('image.png')
+
+        # Model path
+        self.model_folder_path = slicer.modules.ChestXRayAnalyzerWidget.resourcePath('Model/Pathology_classification')
+        self.model_paths = {
+            'alveolar': 'alveolar_pattern-resnet18.pth',
+            'atelectasis': 'atelectasis-resnet18.pth',
+            'cardiomegaly':'cardiomegaly-resnet18.pth',
+            'consolidation':'consolidation-resnet18.pth',
+            'covid19':'covid19-resnet18.pth',
+            'infiltrates':'infiltrates-resnet18.pth',
+            'nodule': 'nodule-resnet18.pth',
+            'normal': 'normal-resnet18.pth',
+            'pleural_effusion':'pleural_effusion-resnet18.pth',
+            'pneumonia':'pneumonia-resnet18.pth',
+            'pseudonodule': 'pseudonodule-resnet18.pth',
+            'pulmonary_mass': 'pulmonary_mass-resnet18.pth',
+        }
+
+        # Device
+        self.DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         # Set red slice only layout
         slicer.app.layoutManager().setLayout(6)
@@ -565,6 +626,85 @@ class ChestXRayAnalyzerLogic(ScriptedLoadableModuleLogic):
         return blurred
 
     #-------------------------------------------------------------------------------
+    def runClassifierValenciaModels(self, parameterNode):
+        if not parameterNode:
+            return
+
+        startTime = time.time()
+        print('Processing started')
+
+        # Get input volume
+        try:
+            inputVolumeNode = parameterNode.GetNodeReference("InputVolume")
+        except:
+            logging.error('Input volume was not defined.')
+            return
+
+        # Get classification models
+        models = {}
+        for pathology, model_path in self.model_paths.items():
+            models[pathology] = torch.load(os.path.join(self.model_folder_path, model_path), map_location = self.DEVICE)
+            models[pathology].eval()
+        
+        # Create progress dialog and store start time
+        progressDialog = slicer.util.createProgressDialog(parent=slicer.util.mainWindow(), value=0, maximum=100)
+
+        # Set wait cursor
+        qt.QApplication.setOverrideCursor(qt.Qt.WaitCursor)
+
+        # Get array
+        volumeArray = slicer.util.arrayFromVolume(inputVolumeNode)
+
+        # Preprocess image
+        transform = torchvision.transforms.Compose([
+                            torchvision.transforms.Resize((1024,1024)),
+                            torchvision.transforms.ToTensor()
+                            ])
+
+        cv2.imwrite(self.img_path, volumeArray.squeeze())
+        img = preprocess(self.img_path, "MONOCHROME2")
+        img = img[...,::-1]
+        img_trans = transform(Image.fromarray(img)).unsqueeze(0).to(self.DEVICE)
+
+        # Run inference
+        print("--------------Predicted Results-------------")
+        self.results = {}
+
+        for pathology, model in models.items():
+            r = {}
+            r['out'] = model(img_trans)
+
+            prob = torch.nn.functional.softmax(r['out'], dim=1).data.squeeze()
+            r['probs'] = prob.cpu().numpy()
+
+            self.results[pathology] = r 
+            print(pathology,':', self.results[pathology]['probs'][1])
+        
+        # End processing
+        qt.QApplication.restoreOverrideCursor()
+        progressDialog.close()  
+
+        # Get final timestamp
+        stopTime = time.time()
+
+        # Report processing time
+        print(f'Processing completed in {stopTime-startTime:.2f} seconds')
+        
+    #-------------------------------------------------------------------------------
+    def updateProgressBar(self, progress_bar,pathology):
+        if self.results == None: 
+            progress_bar.setValue(0)
+        else:
+            percentage_predicted = self.results[pathology]['probs'][1] * 100
+            progress_bar.setValue(percentage_predicted)
+
+            # Set ProgressBar Color
+            if (pathology != 'normal' and percentage_predicted > 50) or (pathology== 'normal' and percentage_predicted < 50):
+                progress_bar.setStyleSheet("QProgressBar::chunk {background-color: red;}")
+            else:
+                progress_bar.setStyleSheet("QProgressBar::chunk {background-color: green;}")
+                
+    #-------------------------------------------------------------------------------
     def loadModel(self):
         # Weights file path
         weightsFilePath = slicer.modules.ChestXRayAnalyzerWidget.resourcePath('Models') + '/deepedit_dynunet.pt'
@@ -620,6 +760,13 @@ class ChestXRayAnalyzerLogic(ScriptedLoadableModuleLogic):
         if progressDialog.wasCanceled:
             raise CancelledError('Cancelled')
 
+    #------------------------------------------------------------------------------
+    def displayVolumeInSliceView(self, volumeNode):
+        # Display input volume node in red slice background
+        self.redSliceLogic.GetSliceCompositeNode().SetBackgroundVolumeID(volumeNode.GetID())
+        self.redSliceLogic.FitSliceToAll()
+
+    #------------------------------------------------------------------------------
 
 #
 # ChestXRayAnalyzerTest

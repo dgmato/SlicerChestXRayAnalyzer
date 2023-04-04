@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>348</width>
-    <height>563</height>
+    <width>487</width>
+    <height>706</height>
    </rect>
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
@@ -17,13 +17,6 @@
       <string>Inputs</string>
      </property>
      <layout class="QGridLayout" name="gridLayout">
-      <item row="0" column="0">
-       <widget class="QLabel" name="label_6">
-        <property name="text">
-         <string>Input volume:</string>
-        </property>
-       </widget>
-      </item>
       <item row="1" column="1">
        <widget class="QComboBox" name="segmentationModelComboBox">
         <item>
@@ -31,6 +24,13 @@
           <string>Pyramid Scene Parsing (PSP) Network</string>
          </property>
         </item>
+       </widget>
+      </item>
+      <item row="3" column="0" colspan="2">
+       <widget class="QPushButton" name="runButton">
+        <property name="text">
+         <string>Run Automatic Segmentation</string>
+        </property>
        </widget>
       </item>
       <item row="0" column="1">
@@ -48,24 +48,10 @@
         </property>
        </widget>
       </item>
-      <item row="3" column="0" colspan="2">
-       <widget class="QPushButton" name="runButton">
-        <property name="text">
-         <string>Run Automatic Segmentation</string>
-        </property>
-       </widget>
-      </item>
       <item row="1" column="0">
        <widget class="QLabel" name="label">
         <property name="text">
          <string>Segmentation model:</string>
-        </property>
-       </widget>
-      </item>
-      <item row="2" column="0">
-       <widget class="QLabel" name="label_2">
-        <property name="text">
-         <string>Classification model:</string>
         </property>
        </widget>
       </item>
@@ -83,6 +69,27 @@
         </item>
        </widget>
       </item>
+      <item row="0" column="0">
+       <widget class="QLabel" name="label_6">
+        <property name="text">
+         <string>Input volume:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="0">
+       <widget class="QLabel" name="label_2">
+        <property name="text">
+         <string>Classification model:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="4" column="0" colspan="2">
+       <widget class="QPushButton" name="classifyButton">
+        <property name="text">
+         <string>Run Automatic Classification</string>
+        </property>
+       </widget>
+      </item>
      </layout>
     </widget>
    </item>
@@ -91,11 +98,220 @@
      <property name="text">
       <string>Outputs</string>
      </property>
-     <layout class="QGridLayout" name="gridLayout_2">
-      <item row="2" column="0">
-       <widget class="QLabel" name="label_12">
+     <layout class="QFormLayout" name="formLayout">
+      <item row="0" column="0">
+       <widget class="QLabel" name="Normal">
+        <property name="font">
+         <font>
+          <pointsize>8</pointsize>
+         </font>
+        </property>
         <property name="text">
-         <string/>
+         <string>Normal</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="QProgressBar" name="normal_progressBar">
+        <property name="value">
+         <number>24</number>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <spacer name="verticalSpacer_2">
+        <property name="orientation">
+         <enum>Qt::Vertical</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>20</width>
+          <height>10</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+      <item row="2" column="0" colspan="2">
+       <widget class="QLabel" name="label_3">
+        <property name="font">
+         <font>
+          <pointsize>9</pointsize>
+          <weight>75</weight>
+          <bold>true</bold>
+         </font>
+        </property>
+        <property name="text">
+         <string>Prediction for each pathology</string>
+        </property>
+        <property name="alignment">
+         <set>Qt::AlignCenter</set>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="0">
+       <spacer name="verticalSpacer_3">
+        <property name="orientation">
+         <enum>Qt::Vertical</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>20</width>
+          <height>10</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+      <item row="4" column="0">
+       <widget class="QLabel" name="Alveolar_pattern">
+        <property name="text">
+         <string>Alveolar pattern</string>
+        </property>
+       </widget>
+      </item>
+      <item row="4" column="1">
+       <widget class="QProgressBar" name="alveolar_progressBar">
+        <property name="value">
+         <number>24</number>
+        </property>
+       </widget>
+      </item>
+      <item row="5" column="0">
+       <widget class="QLabel" name="Atelectasis">
+        <property name="text">
+         <string>Atelectasis</string>
+        </property>
+       </widget>
+      </item>
+      <item row="5" column="1">
+       <widget class="QProgressBar" name="atelectasis_progressBar">
+        <property name="value">
+         <number>24</number>
+        </property>
+       </widget>
+      </item>
+      <item row="6" column="0">
+       <widget class="QLabel" name="Cardiomegaly">
+        <property name="text">
+         <string>Cardiomegaly</string>
+        </property>
+       </widget>
+      </item>
+      <item row="6" column="1">
+       <widget class="QProgressBar" name="cardiomegaly_progressBar">
+        <property name="value">
+         <number>24</number>
+        </property>
+       </widget>
+      </item>
+      <item row="7" column="0">
+       <widget class="QLabel" name="Consolidation">
+        <property name="text">
+         <string>Consolidation</string>
+        </property>
+       </widget>
+      </item>
+      <item row="7" column="1">
+       <widget class="QProgressBar" name="consolidation_progressBar">
+        <property name="value">
+         <number>24</number>
+        </property>
+       </widget>
+      </item>
+      <item row="8" column="0">
+       <widget class="QLabel" name="Covid19">
+        <property name="text">
+         <string>Covid 19</string>
+        </property>
+       </widget>
+      </item>
+      <item row="8" column="1">
+       <widget class="QProgressBar" name="covid19_progressBar">
+        <property name="value">
+         <number>24</number>
+        </property>
+       </widget>
+      </item>
+      <item row="9" column="0">
+       <widget class="QLabel" name="Infiltrates">
+        <property name="text">
+         <string>Infiltrates</string>
+        </property>
+       </widget>
+      </item>
+      <item row="9" column="1">
+       <widget class="QProgressBar" name="infiltrates_progressBar">
+        <property name="value">
+         <number>24</number>
+        </property>
+       </widget>
+      </item>
+      <item row="10" column="0">
+       <widget class="QLabel" name="Nodule">
+        <property name="text">
+         <string>Nodule</string>
+        </property>
+       </widget>
+      </item>
+      <item row="10" column="1">
+       <widget class="QProgressBar" name="nodule_progressBar">
+        <property name="value">
+         <number>24</number>
+        </property>
+       </widget>
+      </item>
+      <item row="11" column="0">
+       <widget class="QLabel" name="Pleural_effusion">
+        <property name="text">
+         <string>Pleural effusion</string>
+        </property>
+       </widget>
+      </item>
+      <item row="11" column="1">
+       <widget class="QProgressBar" name="pleural_effusion_progressBar">
+        <property name="value">
+         <number>24</number>
+        </property>
+       </widget>
+      </item>
+      <item row="12" column="0">
+       <widget class="QLabel" name="Pneumonia">
+        <property name="text">
+         <string>Pneumonia</string>
+        </property>
+       </widget>
+      </item>
+      <item row="12" column="1">
+       <widget class="QProgressBar" name="pneumonia_progressBar">
+        <property name="value">
+         <number>24</number>
+        </property>
+       </widget>
+      </item>
+      <item row="13" column="0">
+       <widget class="QLabel" name="Pseudonodule">
+        <property name="text">
+         <string>Pseudonodule</string>
+        </property>
+       </widget>
+      </item>
+      <item row="13" column="1">
+       <widget class="QProgressBar" name="pseudonodule_progressBar">
+        <property name="value">
+         <number>24</number>
+        </property>
+       </widget>
+      </item>
+      <item row="14" column="0">
+       <widget class="QLabel" name="Pulmonary_mass">
+        <property name="text">
+         <string>Pulmonary mass</string>
+        </property>
+       </widget>
+      </item>
+      <item row="14" column="1">
+       <widget class="QProgressBar" name="pulmonary_mass_progressBar">
+        <property name="value">
+         <number>24</number>
         </property>
        </widget>
       </item>
