@@ -25,7 +25,6 @@ import skimage
 from preprocess.preprocess import preprocess
         
         
-
 #------------------------------------------------------------------------------
 #
 # ChestXRayAnalyzer
@@ -324,9 +323,6 @@ class ChestXRayAnalyzerLogic(ScriptedLoadableModuleLogic):
             'pseudonodule': 'pseudonodule-resnet18.pth',
             'pulmonary_mass': 'pulmonary_mass-resnet18.pth',
         }
-
-        # Device
-        self.DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         # Set red slice only layout
         slicer.app.layoutManager().setLayout(6)
@@ -643,7 +639,7 @@ class ChestXRayAnalyzerLogic(ScriptedLoadableModuleLogic):
         # Get classification models
         models = {}
         for pathology, model_path in self.model_paths.items():
-            models[pathology] = torch.load(os.path.join(self.model_folder_path, model_path), map_location = self.DEVICE)
+            models[pathology] = torch.load(os.path.join(self.model_folder_path, model_path), map_location = 'cpu')
             models[pathology].eval()
         
         # Create progress dialog and store start time
@@ -664,7 +660,7 @@ class ChestXRayAnalyzerLogic(ScriptedLoadableModuleLogic):
         cv2.imwrite(self.img_path, volumeArray.squeeze())
         img = preprocess(self.img_path, "MONOCHROME2")
         img = img[...,::-1]
-        img_trans = transform(Image.fromarray(img)).unsqueeze(0).to(self.DEVICE)
+        img_trans = transform(Image.fromarray(img)).unsqueeze(0)
 
         # Run inference
         print("--------------Predicted Results-------------")
