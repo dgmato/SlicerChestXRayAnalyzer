@@ -243,6 +243,11 @@ class ChestXRayAnalyzerWidget(ScriptedLoadableModuleWidget, VTKObservationMixin)
         if inputVolume:
             self.logic.displayVolumeInSliceView(inputVolume)
 
+        # Delete the previous cropped volume
+        if self.logic.cropped_volume_node:
+            slicer.mrmlScene.RemoveNode(self.logic.cropped_volume_node)
+            self.logic.cropped_volume_node = None
+
     #-------------------------------------------------------------------------------
     def onRunButton(self):
         """
@@ -288,6 +293,9 @@ class ChestXRayAnalyzerLogic(ScriptedLoadableModuleLogic):
         # Output segmentation
         self.outputSegmentation = None
 
+        # Cropped volume
+        self.cropped_volume_node = None
+
         # Classification results
         self.results = None
 
@@ -303,9 +311,6 @@ class ChestXRayAnalyzerLogic(ScriptedLoadableModuleLogic):
                 volumeNode = slicer.util.loadVolume(volumeFilePath)
             except:
                 print('ERROR: sample data could not be loaded from: ', volumeFilePath)
-
-        # Image path (used to process the image)
-        self.img_path = slicer.modules.ChestXRayAnalyzerWidget.resourcePath('image.png')
 
         # Model path
         self.model_folder_path = slicer.modules.ChestXRayAnalyzerWidget.resourcePath('Model/Pathology_classification')
@@ -636,6 +641,11 @@ class ChestXRayAnalyzerLogic(ScriptedLoadableModuleLogic):
             logging.error('Input volume was not defined.')
             return
 
+        # Temporary paths
+        temporaryPath = slicer.app.temporaryPath
+        originalPath = os.path.join(temporaryPath,'original_image.png')
+        croppedPath = os.path.join(temporaryPath,'cropped_image.png')
+
         # Get classification models
         models = {}
         for pathology, model_path in self.model_paths.items():
@@ -657,10 +667,14 @@ class ChestXRayAnalyzerLogic(ScriptedLoadableModuleLogic):
                             torchvision.transforms.ToTensor()
                             ])
 
-        cv2.imwrite(self.img_path, volumeArray.squeeze())
-        img = preprocess(self.img_path, "MONOCHROME2")
+        cv2.imwrite(originalPath, volumeArray.squeeze())
+        img = preprocess(originalPath, "MONOCHROME2", croppedPath)
         img = img[...,::-1]
         img_trans = transform(Image.fromarray(img)).unsqueeze(0)
+
+        # Create a cropped image volume
+        cropped_image = cv2.imread(croppedPath,cv2.IMREAD_UNCHANGED)
+        self.createVolumeFromNumpyArray(cropped_image, inputVolumeNode)
 
         # Run inference
         print("--------------Predicted Results-------------")
@@ -699,7 +713,16 @@ class ChestXRayAnalyzerLogic(ScriptedLoadableModuleLogic):
                 progress_bar.setStyleSheet("QProgressBar::chunk {background-color: red;}")
             else:
                 progress_bar.setStyleSheet("QProgressBar::chunk {background-color: green;}")
-                
+
+       #-------------------------------------------------------------------------------
+    def createVolumeFromNumpyArray(self, image,inputVolumeNode):
+        croppedNodeName = "Cropped Image_" + inputVolumeNode.GetName()
+        image = np.flip(image, axis = (0,1))
+        self.cropped_volume_node = slicer.vtkMRMLScalarVolumeNode()
+        self.cropped_volume_node.SetName(croppedNodeName)
+        slicer.util.updateVolumeFromArray(self.cropped_volume_node , image)
+        slicer.mrmlScene.AddNode(self.cropped_volume_node )
+
     #-------------------------------------------------------------------------------
     def loadModel(self):
         # Weights file path

@@ -160,7 +160,7 @@ def equalize(image):
 
 
 
-def preprocess(filename, monochrome, temp_path = '/tmp/yolo'):
+def preprocess(filename, monochrome, croppedPath, temp_path = '/tmp/yolo'):
     temp_subpath = temp_path
     if not os.path.exists(temp_path):
         os.makedirs(temp_subpath)
@@ -175,6 +175,7 @@ def preprocess(filename, monochrome, temp_path = '/tmp/yolo'):
         return None
     
     cropped = pixels[p1[1]:p2[1], p1[0]:p2[0]]
+    cv2.imwrite(croppedPath, cropped)
     preprocessed = equalize(cropped)
 
     return preprocessed
